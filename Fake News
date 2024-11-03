@@ -1,0 +1,254 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from wordcloud import WordCloud, STOPWORDS
+import nltk
+import re
+from nltk.corpus import stopwords
+import gensim
+from gensim.utils import simple_preprocess
+from gensim.parsing.preprocessing import STOPWORDS
+
+import plotly.express as px
+from sklearn.model_selection import train_test_split
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.metrics import roc_auc_score
+from sklearn.metrics import confusion_matrix
+
+Loading the Dataset
+
+df_true = pd.read_csv("/content/True.csv")
+df_fake = pd.read_csv("/content/Fake.csv")
+
+Setting up a target and merging both datasets
+
+df_true['target'] = 1
+df_fake['target'] = 0
+df = pd.concat([df_true, df_fake]).reset_index(drop = True)
+df['original'] = df['title'] + ' ' + df['text']
+df.head()
+
+Checking the number of null values
+
+df.isnull().sum()
+
+Some Data cleaning
+
+nltk.download('stopwords')
+
+stop_words = stopwords.words('english')
+stop_words.extend(['from', 'subject', 're', 'edu', 'use'])
+def preprocess(text):
+    result = []
+    for token in gensim.utils.simple_preprocess(text):
+        if token not in gensim.parsing.preprocessing.STOPWORDS and len(token) > 2 and token not in stop_words:
+            result.append(token)
+
+    return result
+
+df.subject=df.subject.replace({'politics':'PoliticsNews','politicsNews':'PoliticsNews'})
+
+EXPLORATORY DATA ANALYSIS - EDA
+
+1. Distribution of true and fake news
+
+sub_tf_df=df.groupby('target').apply(lambda x:x['title'].count()).reset_index(name='Counts')
+sub_tf_df.target.replace({0:'False',1:'True'},inplace=True)
+fig = px.bar(sub_tf_df, x="target", y="Counts",
+             color='Counts', barmode='group',
+             height=400)
+fig.show()
+
+2. What issues have been most covered in the news?
+
+sub_check=df.groupby('subject').apply(lambda x:x['title'].count()).reset_index(name='Counts')
+fig=px.bar(sub_check,x='subject',y='Counts',color='Counts',title='Count of News Articles by Subject')
+fig.show()
+
+3. Word Cloud
+
+df['clean_title'] = df['title'].apply(preprocess)
+df['clean_title'][0]
+df['clean_joined_title']=df['clean_title'].apply(lambda x:" ".join(x))
+plt.figure(figsize = (20,20))
+wc = WordCloud(max_words = 2000 , width = 1600 , height = 800 , stopwords = stop_words).generate(" ".join(df[df.target == 1].clean_joined_title))
+plt.imshow(wc, interpolation = 'bilinear')
+
+4. Maximum count of words in a title
+
+nltk.download('punkt')
+maxlen = -1
+for doc in df.clean_joined_title:
+    tokens = nltk.word_tokenize(doc)
+    if(maxlen<len(tokens)):
+        maxlen = len(tokens)
+print("The maximum number of words in a title is =", maxlen)
+fig = px.histogram(x = [len(nltk.word_tokenize(x)) for x in df.clean_joined_title], nbins = 50)
+fig.show()
+
+df
+
+Data Preprocessing
+
+import re
+def wordopt(text):
+    text = re.sub('\[.*?\]', '', text)
+    text = re.sub("\\W"," ",text)
+    text = re.sub('https?://\S+|www\.\S+', '', text)
+    text = re.sub('<.*?>+', '', text)
+    text = re.sub('\n', '', text)
+    text = re.sub('\w*\d\w*', '', text)
+    return text
+df["text"] = df["text"].apply(wordopt)
+
+Model Building
+
+Train test split
+
+x = df["text"]
+y = df["target"]
+x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.25)
+
+LOGISTIC REGRESSION
+
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics import classification_report
+
+vectorization = TfidfVectorizer()
+xv_train = vectorization.fit_transform(x_train)
+xv_test = vectorization.transform(x_test)
+from sklearn.linear_model import LogisticRegression
+
+LR = LogisticRegression()
+LR.fit(xv_train,y_train)
+
+pred_lr=LR.predict(xv_test)
+LR.score(xv_test, y_test)
+
+print(classification_report(y_test, pred_lr))
+
+confusion_mat = confusion_matrix(y_test, pred_lr)
+plt.figure(figsize=(8, 6))
+sns.heatmap(confusion_mat, annot=True, fmt='d', cmap='Blues', xticklabels=['Fake', 'True'], yticklabels=['Fake', 'True'])
+plt.xlabel('Predicted')
+plt.ylabel('Actual')
+plt.title('Confusion Matrix for Logistic Regression')
+plt.show()
+
+Decision Tree Classifier
+
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.metrics import confusion_matrix
+import seaborn as sns
+import matplotlib.pyplot as plt
+DT = DecisionTreeClassifier()
+DT.fit(xv_train, y_train)
+
+pred_dt = DT.predict(xv_test)
+accuracy = DT.score(xv_test, y_test) * 100
+print(f"Accuracy: {accuracy:.2f}%")
+print(classification_report(y_test, pred_dt))
+
+confusion_mat = confusion_matrix(y_test, pred_dt)
+# Create a heatmap for the confusion matrix
+plt.figure(figsize=(8, 6))
+sns.heatmap(confusion_mat, annot=True, fmt='d', cmap='Blues', xticklabels=['Fake', 'True'], yticklabels=['Fake', 'True'])
+plt.xlabel('Predicted')
+plt.ylabel('Actual')
+plt.title('Confusion Matrix for Decision Tree Classifier')
+plt.show()
+
+Gradient Boosting Classifier
+
+from sklearn.ensemble import GradientBoostingClassifier
+
+GBC = GradientBoostingClassifier(random_state=0)
+GBC.fit(xv_train, y_train)
+
+pred_gbc = GBC.predict(xv_test)
+accuracy = GBC.score(xv_test, y_test) * 100
+print(f"Accuracy: {accuracy:.2f}%")
+print(classification_report(y_test, pred_gbc))
+
+confusion_mat = confusion_matrix(y_test, pred_gbc)
+plt.figure(figsize=(8, 6))
+sns.heatmap(confusion_mat, annot=True, fmt='d', cmap='Blues', xticklabels=['Fake', 'True'], yticklabels=['Fake', 'True'])
+plt.xlabel('Predicted')
+plt.ylabel('Actual')
+plt.title('Confusion Matrix for Gradient Boosting Classifier')
+plt.show()
+
+Random Forest Classfier
+
+from sklearn.ensemble import RandomForestClassifier
+
+RFC = RandomForestClassifier(random_state=0)
+RFC.fit(xv_train, y_train)
+
+pred_rfc = RFC.predict(xv_test)
+accuracy = RFC.score(xv_test, y_test) * 100
+print(f"Accuracy: {accuracy:.2f}%")
+print(classification_report(y_test, pred_rfc))
+
+confusion_mat = confusion_matrix(y_test, pred_rfc)
+plt.figure(figsize=(8, 6))
+sns.heatmap(confusion_mat, annot=True, fmt='d', cmap='Blues', xticklabels=['Fake', 'True'], yticklabels=['Fake', 'True'])
+plt.xlabel('Predicted')
+plt.ylabel('Actual')
+plt.title('Confusion Matrix for Random Forest Classifier')
+plt.show()
+
+Taking Manual Inputs
+
+def output_lable(n):
+    if n == 0:
+        return "Fake News"
+    elif n == 1:
+        return "Not A Fake News"
+
+def manual_testing(news):
+    testing_news = {"text": [news]}
+    new_def_test = pd.DataFrame(testing_news)
+    new_def_test["text"] = new_def_test["text"].apply(wordopt)
+    new_x_test = new_def_test["text"]
+    new_xv_test = vectorization.transform(new_x_test)
+    pred_LR = LR.predict(new_xv_test)
+    pred_DT = DT.predict(new_xv_test)
+    pred_GBC = GBC.predict(new_xv_test)
+    pred_RFC = RFC.predict(new_xv_test)
+
+    return print("\n\nLR Prediction: {} \nDT Prediction: {} \nGBC Prediction: {} \nRFC Prediction: {}".format(output_lable(pred_LR[0]),                                                                                                       output_lable(pred_DT[0]),
+                                                                                                              output_lable(pred_GBC[0]),
+                                                                                                              output_lable(pred_RFC[0])))
+
+
+
+Hindi to English news translation
+
+!pip3 uninstall googletrans
+!pip3 install googletrans==3.1.0a0
+from googletrans import Translator, constants
+from pprint import pprint
+
+def translation (text):
+
+ translator = Translator()
+
+ translation = translator.translate(text, dest="en")
+ print(translation.text)
+
+Giving user a menu
+
+#@title Fake News Detection
+
+text = '\u0928\u0908 \u0926\u093F\u0932\u094D\u0932\u0940: \u0905\u092E\u0947\u0930\u093F\u0915\u093E \u0914\u0930 \u091A\u0940\u0928 \u0915\u0947 \u092C\u0940\u091A \u092A\u0930\u092E\u093E\u0923\u0941 \u0939\u0925\u093F\u092F\u093E\u0930 \u0928\u093F\u092F\u0902\u0924\u094D\u0930\u0923 \u0935\u093E\u0930\u094D\u0924\u093E (US China On Nuclear Arms Control) \u092A\u0930 \u0938\u0939\u092E\u0924\u093F \u092C\u0928 \u0917\u0908 \u0939\u0948. \u0926\u094B\u0928\u094B\u0902 \u0915\u0947 \u092C\u0940\u091A \u092F\u0947 \u092C\u093E\u0924\u091A\u0940\u0924 \u0905\u0917\u0932\u0947 \u0939\u092B\u094D\u0924\u0947 \u0939\u094B\u0917\u0940. \u0930\u0949\u092F\u091F\u0930\u094D\u0938 \u0915\u0940 \u0916\u092C\u0930 \u0915\u0947 \u092E\u0941\u0924\u093E\u092C\u093F\u0915 \u092F\u0947 \u091C\u093E\u0928\u0915\u093E\u0930\u0940 \u0935\u0949\u0932 \u0938\u094D\u091F\u094D\u0930\u0940\u091F \u091C\u0930\u094D\u0928\u0932 \u0928\u0947 \u092C\u0941\u0927\u0935\u093E\u0930 \u0915\u094B \u0926\u0940. \u0909\u0928\u094D\u0939\u094B\u0902\u0928\u0947 \u092C\u0924\u093E\u092F\u093E \u0915\u093F \u091A\u0940\u0928 \u0928\u0947 \u0905\u092E\u0947\u0930\u093F\u0915\u093E \u0915\u0947 \u0938\u093E\u0925 \u092A\u0930\u092E\u093E\u0923\u0941 \u0939\u0925\u093F\u092F\u093E\u0930 \u0928\u093F\u092F\u0902\u0924\u094D\u0930\u0923 \u0935\u093E\u0930\u094D\u0924\u093E \u0906\u092F\u094B\u091C\u093F\u0924 \u0915\u0930\u0928\u0947 \u092A\u0930 \u0938\u0939\u092E\u0924\u093F \u091C\u0924\u093E \u0926\u0940 \u0939\u0948. \u0913\u092C\u093E\u092E\u093E \u0938\u0930\u0915\u093E\u0930 \u0915\u0947 \u0938\u0924\u094D\u0924\u093E \u0938\u0947 \u091C\u093E\u0928\u0947 \u0915\u0947 \u092C\u093E\u0926 \u092A\u0939\u0932\u0940 \u092C\u093E\u0930 \u091A\u0940\u0928 \u0914\u0930 \u0905\u092E\u0947\u0930\u093F\u0915\u093E \u0915\u0947 \u092C\u0940\u091A \u092A\u0930\u092E\u093E\u0923\u0941 \u0939\u0925\u093F\u092F\u093E\u0930 \u0928\u093F\u092F\u0902\u0924\u094D\u0930\u0923 \u092A\u0930 \u092C\u093E\u0924\u091A\u0940\u0924 \u0939\u094B\u0917\u0940. \u0932\u0947\u0915\u093F\u0928 \u0926\u094B\u0928\u094B\u0902 \u0915\u0947 \u092C\u0940\u091A \u092A\u0930\u092E\u093E\u0923\u0941 \u0939\u0925\u093F\u092F\u093E\u0930\u094B\u0902 \u0915\u094B \u0938\u0940\u092E\u093F\u0924 \u0915\u0930\u0928\u0947 \u092A\u0930 \u0938\u0939\u092E\u0924\u093F \u092C\u0928\u0947\u0917\u0940' #@param {type:"string"}
+dropdown = 'Hindi' #@param ["English","Hindi"]
+
+if dropdown == 'English':
+  manual_testing(text)
+else:
+  new_text = str(translation(text))
+  print(new_text)
+  manual_testing(new_text)
